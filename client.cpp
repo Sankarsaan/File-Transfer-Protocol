@@ -162,28 +162,60 @@ int main(int argc, char* argv[]) {
         asio::connect(socket, endpoints);
         std::cout << "Connected to server.\n";
 
-        std::string cmd, arg;
+        std::string line, cmd, arg;
         while (true) {
             std::cout << "ftp> ";
-            std::cin >> cmd >> arg;
+            std::getline(std::cin, line);
+            
+            if (line.empty()) continue;
 
-            if (cmd == "PUT") {
-                send_file(socket, arg);
-            } 
-            else if (cmd == "GET") {
-                receive_file(socket, arg);
-            }
-            else if (cmd == "MPUT") {
-                // Client iterates local directory and triggers PUT for each match
-                for (const auto& entry : fs::directory_iterator(".")) {
-                    if (entry.is_regular_file() && entry.path().extension() == arg) {
-                        std::cout << "Uploading: " << entry.path().filename().string() << "\n";
-                        send_file(socket, entry.path().filename().string());
-                    }
+            // Parse the line into command and argument
+            std::istringstream iss(line);
+            iss >> cmd;
+
+            // Handle commands that require an argument
+            if (cmd == "PUT" || cmd == "GET" || cmd == "MPUT" || cmd == "MGET") {
+                if (!(iss >> arg)) {
+                    std::cerr << "Error: Command '" << cmd << "' requires an argument (e.g., " << cmd << " filename.txt)\n";
+                    continue;
                 }
-            }
-            else if (cmd == "MGET") {
-                receive_multiple_files(socket, arg);
+
+                if (cmd == "PUT") {
+                    send_file(socket, arg);
+                } 
+                else if (cmd == "GET") {
+                    receive_file(socket, arg);
+                }
+                else if (cmd == "MPUT") {
+                    bool found = false;
+                    for (const auto& entry : fs::directory_iterator(".")) {
+                        if (entry.is_regular_file() && entry.path().extension() == arg) {
+                            std::cout << "Uploading: " << entry.path().filename().string() << "\n";
+                            send_file(socket, entry.path().filename().string());
+                            found = true;
+                        }
+                    }
+                    if (!found) std::cout << "No local files found with extension " << arg << "\n";
+                }
+                else if (cmd == "MGET") {
+                    receive_multiple_files(socket, arg);
+                }
+            } 
+            // Optional: Handle a graceful exit command
+            else if (cmd == "EXIT" || cmd == "QUIT") {
+                std::cout << "Closing connection.\n";
+                socket.close();
+                break;
+            } 
+            // Handle unrecognized commands
+            else {
+                std::cerr << "Error: Unknown command '" << cmd << "'.\n";
+                std::cout << "Available commands:\n"
+                          << "  PUT <filename>   - Upload a file\n"
+                          << "  GET <filename>   - Download a file\n"
+                          << "  MPUT <extension> - Upload all files with extension\n"
+                          << "  MGET <extension> - Download all files with extension\n"
+                          << "  EXIT             - Close the client\n";
             }
         }
     } catch (std::exception& e) {
